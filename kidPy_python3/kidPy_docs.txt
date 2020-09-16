@@ -1,0 +1,612 @@
+Recommend viewing in VIM
+
+Notes: 
+(0) "Functions" denotes global functions in a file
+(1) "Methods (Class / Instance)" denotes functions within a class
+(2) All local -- i.e. within the same file and from other files in kidPy_python3 -- function calls are notated under "Calls:"
+(3) The datatype, and name of the variable, of function returns is listed under "Returns:"
+
+
+Python Files:
+    kidPy/kidPy_python3/
+        PSDs.py                     54   l
+        find_kids_interactive.py    269  l
+        gbeConfig.py                581  l
+        kidPy.py                    1266 l
+        myQdr.py                    379  l
+        plotPSDs.py                 52   l
+        roachInterface.py           720  l
+        roach_led_mapping.py        25   l
+        sean_psd.py                 55   l
+        targplot.py                 49   l
+        tune_kids.py                165  l
+        valon_synth9.py             397  l
+       
+Testing File:
+    kidPy/kidPy_python3/
+        kidPyTest.py
+
+
+
+PSDs.py
+
+    Imports:
+        sys, struct
+        matplotlib.pyplot as plt
+        numpy as np
+        signal from scipy
+        pygetdata as gd
+
+    Functions:
+        allPSD()
+
+
+
+find_kids_interactive.py
+
+    Imports:
+        numpy as np
+        matplotlib.pyplot as plt
+        sys, os
+        signal, ndimage, fftpack from scipy
+
+    class interactive_plot(object):
+        def __init__(self):
+            self.fig = plt.figure(4,figsize = (16,6))
+            self.ax = self.fig.add_subplot(111)
+            self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
+            self.fig.canvas.mpl_connect('key_release_event', self.on_key_release)
+            self.fig.canvas.mpl_connect('button_press_event', self.onClick)
+            self.shift_is_held = False
+            self.control_is_held = False
+            self.add_list = []
+            self.delete_list = []
+            print "please hold either the shift or control key while right clicking to add or remove points"
+            print "close all plots when done"
+
+    Intance Methods:
+        on_key_press()
+        on_key_release()
+        onClick()
+
+    Global Variables:
+        accum_len= 2**19
+
+    (end class interactive_plot)
+
+    Functions:
+        openStored() ****NOT USED
+        compute_dI_and_dQ() ****NOT USED
+            Calls: filtered_differential()
+        filtered_differential() ****NOT USED
+        openStoredSweep()
+        filter_trace()
+            Calls: openStoredSweep()
+        lowpass_cosine()
+        main()
+            Calls: filter_trace(), lowpass_cosine(), interactive_plot(), 
+
+
+
+gbeConfig.py
+
+    Imports:
+        os, sys, time, struct, select, errno
+        multiprocessing as mp
+        numpy as np
+        socket as sock
+        pygetdata as gd
+
+    Functions:
+        parseChanData()
+            Returns: Tuple(Numpy arrays) -- I, Q, np.arctan2([Q],[I])
+        writer()
+
+    class roachDownlink(object):
+        def __init__(self, ri, fpga, gc, regs, socket, data_rate):
+            self.ri = ri
+            self.fpga = fpga
+            self.gc = gc
+            self.regs = regs
+            self.s = socket
+            self.data_rate = data_rate
+            self.data_len = 8192
+            self.header_len = 42
+            self.buf_size = self.data_len + self.header_len
+            temp_ip = self.gc[np.where(self.gc == 'udp_dest_ip')[0][0]][1]
+            temp_ip = sock.inet_aton(temp_ip)
+            self.udp_dest_ip = struct.unpack(">L", temp_ip)[0]
+            temp_ip = self.gc[np.where(self.gc == 'udp_src_ip')[0][0]][1]
+            temp_ip = sock.inet_aton(temp_ip)
+            self.udp_src_ip = struct.unpack(">L", temp_ip)[0]
+            src_mac = self.gc[np.where(self.gc == 'udp_src_mac')[0][0]][1]
+            self.udp_srcmac1 = int(src_mac[0:4], 16)
+            self.udp_srcmac0 = int(src_mac[4:], 16)
+            dest_mac = self.gc[np.where(self.gc == 'udp_dest_mac')[0][0]][1]
+            self.udp_destmac1 = int(dest_mac[0:4], 16)
+            self.udp_destmac0 = int(dest_mac[4:], 16)
+
+    Instance Methods:
+        configSocket()
+        rempty_buffer()
+        configDownlink()
+        waitForData()
+            Returns: List -- packet
+        parseChanData()
+            Returns: Tuple(Numpy arrays) -- (I, Q, np.arctan2([Q],[I]))
+        zeroPPS()
+        parsePacketData()
+            Returns: Tuple(List, List, NParray, ?) -- (packet, data, header, saddr)
+            Calls: waitForData()
+        testDownlink()
+            Returns: 0
+            Calls: zeroPPS(), parsePacketData()
+        streamChanPhase()
+            Returns: Numpy array -- phases
+            Calls: zeroPPS(), parsePacketData(), parseChanData() 
+        printChanInfo()
+            Calls: zeroPPS(), parsePacketData(), parseChanData()
+        saveSweepData()
+            Calls: zeroPPS(), parsePacketData()
+        saveDirfile_adcIQ()
+        saveDirfile_chanRange()
+            Calls: zeroPPS(), parsePacketData(), parseChanData()
+        saveDirfile_chanRangeIQ()
+            Calls: zeroPPS(), parsePacketData(), parseChanData()
+
+
+
+kidPy.py
+
+    Imports:
+        General:
+            numpy as np
+            sys, os, struct, time
+            #casperfpga
+            #valon_synth9
+            * from socket
+            matplotlib.pyplot as plt
+            signal, ndimage, fftpack from scipy
+            pygetdata as gd
+
+        Local:
+            #roachInterface from roachInterface
+            #roachDownlink from gbeConfig
+            find_kids_interactive as fk
+            targplot
+
+    Global Variables:
+        gc                      numpy array (contains strings)
+        firmware                string
+        vna_savepath            string
+        targ_savepath           string
+        dirfile_savepath        string
+        regs                    numpy array
+        buf_size                int
+        header_len              int
+        CLOCK                   int
+        LO                      int
+        ext_ref                 int
+        lo_step                 float
+        center_freq             float
+        test_freq               numpy array (size = 1)
+        freq_list               numpy array
+        smoothing_scale         float
+        peak_threshold          float
+        spacing_threshold       float
+    
+        caption1                string
+        caption2                string
+        captions                list (len=2)
+        main_opts               list (len=17)
+
+        plot_caption            string
+        plot_opts               list (len=4)
+
+    Functions:
+        #systemInit()
+            Calls: getValon(), getFPGA(), initValon(), roachInterface(), roachDownlink()
+        #getFPGA()
+        #testConn()
+        #initValon() ****NOT USED
+        #getValon() ****NOT USED
+        #setValonLevel() ****NOT USED
+        #setAtten()
+        #readAtten()
+        #calibrateADC()
+            Calls: readAtten(), setAtten()
+        #vnaSweep()
+            Calls: setValonPi(), roachInterface()
+        #writeVnaComb()
+            Calls: getFPGA(), roachInterface()
+        #vnaSweepConsole():
+            Calls: getFPGA(), getValon(), roachInterface(), roachDownlink()
+        #targetSweep()
+            Calls: roachInterface()
+        openStoredSweep()
+        plotVNASweep()
+            Calls: openStoredSweep()
+        plotTargSweep()
+            Calls: openStoredSweep(), targplot.interactive_plot()
+        plotLastVNASweep()
+            Calls: plotVNASweep()
+        plotLastTargSweep()
+            Calls: plotTargSweep()
+        #saveTimestreamDirfile()
+            Calls: getFPGA(), roachInterface(), roachDownlink()
+        #getSystemState()
+            Calls: readValonPi(), readAttenPi(), roachInterface()
+        #plotPhasePSD()
+            Calls: roachInterface()
+        plotAllPSD()
+        filter_trace()
+            Calls: openStoredSweep()
+            Returns: Tuple(Numpy array) -- (chan_freqs, mags)
+        lowpass_cosine()
+            Returns: Numpy array -- filtered
+        findFreqs()
+            Calls: filter_trace(), lowpass_cosine()
+        menu()
+        #main_opt()
+            Calls: menu()
+                testConn() /
+                initValonPi() /
+                /
+                /
+                /
+                calibrateADC() /
+                getSystemState() /
+                /
+                /
+                vnaSweep(), plotVNASWeep() /
+                fk.main()
+                /
+                targetSweep(), plotTargSweep() /
+                plotPhasePSD() /
+                /
+                setAttenPi(), readAttenPi()
+        #makePlotMenu()
+        #plot_opt()
+            Calls: makePlotMenu(), roachInterface()
+        main()
+            Calls: roachInterface(), roachDownlink(), piSocket(), main_opt()
+        plot_main()
+            Calls: roachInterface(), plot_opt()
+
+
+
+myQdr.py
+
+    Imports: 
+        struct, sys, logging, socket, numpy
+
+    Functions:
+        find_cal_area(A)
+
+    class Qdr(object):
+        __init__(self, parent, name):
+            self.parent= parent
+            self.which_qdr= name
+            self.name= name
+            self.memory= name + '_memory'
+            self.control_mem= name + '_ctrl'
+
+    Class Methods:
+        from_qdr()
+            Returns: cls()
+
+    Instance Methods:
+        from_device_info()
+            Returns: cls()
+        __repr__(self)
+            Returns: String
+        reset()
+        qdr_reset()
+        qdr_delay_out_step()
+        qdr_delay_clk_step()
+        qdr_delay_in_step()
+        qdr_delay_clk_get()
+            Returns: uint
+        qdr_cal_check()
+            Returns: Boolean
+        find_in_delays()
+            Returns: Numpy array
+            Calls: qdr_delay_in_step(), find_cal_area()
+        apply_cals()
+            Calls: qdr_reset(), qdr_delay_clk_step(), qdr_delay_in_step(), qdr_delay_out_step()
+        qdr_check_cal_any_good()
+            Returns: Boolean
+        qdr_cal()
+            Returns: Boolean
+            Calls: apply_cals(), qdr_delay_clk_get(), find_in_delays(), qdr_cal_check()
+        qdr_cal2()
+            Returns: Boolean
+            Calls: apply_cals(), qdr_check_cal_any_good(), qdr_delay_clk_get(), find_in_delays(), qdr_cal_check()
+
+
+
+plotPSDs.py
+
+Imports:
+    sys, struct
+    pygetdata as gd
+    matplotlib.pyplot as plt
+    numpy as np
+    signal from scipy
+
+Functions:
+    allPSD()
+
+
+
+roachInterface.py
+
+(Hashtags denote hardware usage.)
+
+    Imports:
+        General: 
+            time, struct, shutil, sys, types, loggin, glob, os
+            numpy as np
+            #casperfpga
+            #valon_synth9
+            signal from scipy
+            scipy.fftpack
+            pygetdata as gd
+            matplotlib
+            matplotlib.lines
+            matplotlib.pyplot as plt
+    
+        Local:
+            myQdr.Qdr as myQdr
+            amplitude_and_power_spectrum from sean_psd
+
+    class roachInterface(object):
+        __init__(self, index, fpga, gc, regs):
+            self.gc = gc
+            self.fpga = fpga
+            self.regs = regs
+            self.firmware = self.gc[np.where(self.gc == 'FIRMWARE_FILE')[0][0]][1]
+            self.Nfreq = int(self.gc[np.where(self.gc == 'Nfreq')[0][0]][1])
+            self.max_pos_freq = np.float(self.gc[np.where(self.gc == 'max_pos_freq')[0][0]][1])
+            self.min_pos_freq = np.float(self.gc[np.where(self.gc == 'min_pos_freq')[0][0]][1])
+            self.max_neg_freq = np.float(self.gc[np.where(self.gc == 'max_neg_freq')[0][0]][1])
+            self.min_neg_freq = np.float(self.gc[np.where(self.gc == 'min_neg_freq')[0][0]][1])
+            self.symm_offset = np.float(self.gc[np.where(self.gc == 'symm_offset')[0][0]][1])
+            pos_freqs, self.pos_delta = np.linspace(self.min_pos_freq, self.max_pos_freq, self.Nfreq, retstep = True)
+            neg_freqs, self.neg_delta = np.linspace(self.min_neg_freq + self.symm_offset, self.max_neg_freq + self.symm_offset, self.Nfreq, retstep = True)
+            self.center_freq = np.float(self.gc[np.where(self.gc == 'center_freq')[0][0]][1]) 
+            self.dac_samp_freq = 512.0e6
+            self.fpga_samp_freq = 256.0e6
+            self.bin_fs = 500.0e3 # FFT bin sampling freq
+            self.hanning = signal.firwin(23, 10.0e3, window='hanning',nyq = 0.5*self.bin_fs)
+            self.boxcar = (1./23.)*np.ones(23)
+            self.LUTbuffer_len = 2**21
+            self.dac_freq_res = 2*self.dac_samp_freq/self.LUTbuffer_len
+            self.fft_len = 1024
+            self.accum_len = 2**19 
+            self.accum_freq = self.fpga_samp_freq / self.accum_len
+            self.I_dds = np.zeros(self.LUTbuffer_len)
+            self.freq_comb = []
+
+    Instance Methods:
+        #uploadfpg()
+            Returns: 0
+        makeFreqComb()(#)
+        lpf()(#)
+        #qdrCal()
+            Calls: myQdr.from_qdr()
+            Returns: 0
+        #read_mixer_snaps()
+            Returns: Tuple(Numpy arrays) -- (mixer_in, mixer_out, lpf_out) or (mixer_in)
+        #read_mixer_shift()
+            Returns: Tuple(Numpy arrays) -- (mixer_in, mixer_out) or (mixer_in)
+        #mixer_comp()
+            Returns: Tuple(Numpy arrays) -- (I_in, Q_in, I_dds_in, Q_dds_in, I_out, Q_out, I_lpf, Q_lpf)
+            Calls: read_mixer_snaps()
+        #plotBin()
+            Calls: mixer_comp()
+        #return_shift()
+            Returns: int -- shift
+            Calls: read_mixer_shift()
+        #get_transfunc()
+            Returns: Numpy array -- transfunc
+            Calls: read_accum_snap()
+        freqComb(apply_transfunc= True)
+            Returns: Tuple(Numpy arrays) -- (I, Q)
+            Calls: fft_bin_index(), get_transfunc()
+        fft_bin_index()
+            Returns: ???? -- k
+        select_bins(#)
+            Returns: Numpy array -- freq_residuals
+            Calls: fft_bin_index()
+        define_DDS_LUT()
+            Returns: Tuple(Numpy arrays) -- (I_dds, Q_dds)
+            Calls: select_bins(), freqComb()
+        pack_luts(#[transfunc])
+            Returns: Tuple(Numpy arrays) -- (I_lut_packed, Q_lut_packed)
+            Calls: freqComb(), define_DDS_LUT()
+        #writeQDR()
+            Calls: pack_luts()
+        #read_accum_snap()
+            Returns: Tuple(Numpy arrays) -- (I, Q)
+        dirfile_all_chan()
+        #plotADC()
+        #adcIQ()
+            Returns: Tuple(Numpy arrays) -- (I, Q)
+        #rmsVoltageADC()
+            Returns: Tuple(Floats) -- (rmsI, rmsQ, crest_factor_I, crest_factor_Q)
+        #plotAccum()
+        #plotFFT()
+        #plotPFB()
+        #plotMixer()
+            Calls: mixer_comp()
+
+
+
+roach_led_mapping.py
+    Imports:
+        kidPy
+
+    Executes:
+        kidPy.systemInit()
+        kidPy.writeVnaComb()
+        kidPy.vnaSweepConsole()
+        kidPy.saveTimestreamDirfile('test', 0, 100, 60)
+
+
+sean_psd.py
+    Imports:
+        numpy as nm
+        scipy
+        scipy.fftpack
+        matplotlib.pyplot as plt
+
+    Functions:
+        amplitude_and_power_spectrum()
+            Returns: Tuple(Numpy arrays) -- (pos_freq, amplitudes, phases) or (pos_freq, v2_per_hz)
+
+
+
+targplot.py
+
+    Imports:
+        matplotlib.pyplot as plt
+        numpy as np
+
+    class interactive_plot(object):
+        def __init__(self, Is, Qs, chan_freqs):
+            self.Is = Is
+            self.Qs = Qs
+            self.chan_freqs = chan_freqs
+            self.fig = plt.figure(1,figsize = (13,6))
+            self.ax = self.fig.add_subplot(121)
+            self.ax.set_ylabel("Power (dB)")
+            self.ax.set_xlabel("Frequecy (MHz)")
+            self.ax2 = self.fig.add_subplot(122)
+            self.ax2.set_ylabel("Q")
+            self.ax2.set_xlabel("I")
+            self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
+            #self.fig.canvas.mpl_connect('key_release_event', self.on_key_release)
+            #self.fig.canvas.mpl_connect('button_press_event', self.onClick)
+            self.plot_index = 0
+            self.l1, = self.ax.plot(chan_freqs[self.plot_index,:],10*np.log10(Is[:,self.plot_index]**2+Qs[:,self.plot_index]**2),'o')
+            self.l2, = self.ax2.plot(Is[:,self.plot_index],Qs[:,self.plot_index],'o')
+            self.ax.set_title("Resonator Index "+str(self.plot_index))
+            print("")
+            print("Interactive Target Sweep Plotting Activated")
+            print("Use left and right arrows to switch between resonators")
+            plt.show(block = True)
+
+            
+    Instance Methods:
+        refresh_plot()
+        on_key_press()
+            Calls: refresh_plot()
+
+
+
+tune_kids.py
+
+    Imports:
+        General:
+            numpy as np
+            matplotlib.pyplot as plt
+            os
+        Local:
+            openStoredSweep from kidPy
+
+    Global Variables:
+        filename            string
+
+    Functions:
+        read_iq_sweep()
+            Calls: openStoredSweep()
+        find_max_didq()
+        tune_kids()
+            Calls: read_iq_sweep(), find_max_didq
+
+    class interacive_plot(object):
+        __init__(self, Is, Qs, chan_freqs, look_around, find_mind= True)
+            Calls: find_max_didq
+    
+    Instance Methods:
+        refresh_plot()
+        on_key_press()
+            Calls: refresh_plot(), find_max_didq
+
+
+
+valon_synth9.py
+
+    Imports:
+        serial
+        sleep, time from time
+
+    Global Variables:
+        __author__      string
+        __license__     string
+        __version__     string
+        SYNTH_A         int
+        SYNTH_B         int
+        INT_REF         int
+        EXT_REF         int
+
+    class Synthesizer:
+        __init__(self, port):
+            self.conn = serial.Serial(None, 9600, serial.EIGHTBITS,serial.PARITY_NONE, serial.STOPBITS_ONE, timeout = 0.500)
+            self.conn.setPort(port)
+
+    Instance Methods:
+        get_frequency()
+            Returns: float -- data
+        set_frequency()
+            Returns: Boolean
+        get_reference()
+            Returns: float -- freq
+        set_reference()
+            Returns: Boolean
+        set_refdoubler()
+            Returns: Boolean
+        get_refdoubler()
+            Returns: int
+        get_rf_level()
+            Returns: int
+        set_rf_level()
+            Returns: Boolean
+        set_pfd()
+            Returns: Boolean
+        get_pfd()
+            Returns: float
+        get_ref_select()
+            Returns: int
+        set_ref_select()
+            Returns: Boolean
+        get_vco_range()
+            Returns: Tuple
+        set_vco_range()
+            Returns: Boolean
+        get_phase_lock()
+            Returns: Boolean
+        flash()
+            Returns: Boolean
+        reset()
+            Returns: Boolean -- True
+
+
+
+kidPyTest.py
+
+    Imports:
+        General:
+            numpy as np
+            matplotlib.pyplot as plt
+        Local:
+            kidPy
+
+    Executes:
+        (prints several global variables from kidPy)
+        kidPy.openStoredSweep()
+        kidPy.plotVNASweep()
+        kidPy.filter_trace()
+        kidPy.lowpass_cosine()
+        kidPy.findFreqs()
